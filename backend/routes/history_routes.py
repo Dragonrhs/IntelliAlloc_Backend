@@ -57,7 +57,6 @@ def get_system_history():
         cursor.execute(query)
         history = cursor.fetchall()
 
-        print("Histórico do sistema retornado:", history)
         return jsonify({'history': history}), 200
 
     except Error as e:
