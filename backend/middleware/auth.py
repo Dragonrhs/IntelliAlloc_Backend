@@ -1,0 +1,43 @@
+from functools import wraps
+from flask import request, jsonify
+from utils.db import get_db_connection
+import mysql.connector
+from mysql.connector import Error
+
+def token_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.cookies.get('session_token')
+        if not token:
+            return jsonify({'error': 'Token de autenticação necessário'}), 401
+
+        try:
+            connection = get_db_connection()
+            if connection is None:
+                return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+            cursor = connection.cursor()
+            cursor.execute("""
+                SELECT user_id FROM sessions 
+                WHERE session_token = %s 
+                AND expires_at > NOW()
+            """, (token,))
+            session_data = cursor.fetchone()
+
+            if not session_data:
+                return jsonify({'error': 'Token inválido ou expirado'}), 401
+            
+            request.user_id = session_data[0]
+            # Adicionar role para verificações futuras
+            cursor.execute("SELECT role FROM user WHERE id = %s", (request.user_id,))
+            request.user_role = cursor.fetchone()[0]
+
+        except Error as e:
+            return jsonify({'error': f'Erro ao verificar token: {str(e)}'}), 500
+        finally:
+            if connection.is_connected():
+                cursor.close()
+                connection.close()
+
+        return f(*args, **kwargs)
+    return decorated_function
