@@ -5,6 +5,7 @@ from routes.user_routes import user_bp
 from routes.client_routes import client_bp
 from routes.history_routes import history_bp
 from routes.portfolio_routes import portfolio_bp
+from routes.statistics_routes import statistics_bp
 
 app = Flask(__name__)
 
@@ -22,6 +23,7 @@ app.register_blueprint(user_bp, url_prefix='/')
 app.register_blueprint(client_bp, url_prefix='/')
 app.register_blueprint(history_bp, url_prefix='/')
 app.register_blueprint(portfolio_bp, url_prefix='/')
+app.register_blueprint(statistics_bp, url_prefix='/')
 
 if __name__ == '__main__':
     app.run(debug=True)
