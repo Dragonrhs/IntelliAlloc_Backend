@@ -442,9 +442,6 @@ def comparar_carteiras():
         carteira1_formatada = format_carteira(carteira1)
         carteira2_formatada = format_carteira(carteira2)
 
-        print(f"Carteira 1 formatada: {json.dumps(carteira1_formatada, indent=2)}")
-        print(f"Carteira 2 formatada: {json.dumps(carteira2_formatada, indent=2)}")
-
         # Preparar dados para a API do Gemini
         prompt = f"""Compare as seguintes carteiras de investimentos e liste as principais mudanças de {mes1} para {mes2} de forma concisa:
 
@@ -458,8 +455,6 @@ Por favor, analise e liste apenas as principais mudanças em formato de tópicos
 1. Mudanças significativas nas bandas (inferior, neutra e superior)
 2. Alterações nas classes de ativos por perfil
 3. Tendências gerais de alocação"""
-
-        print("Enviando requisição para a API do Gemini")
         
         try:
             comparison = call_gemini_api(prompt)

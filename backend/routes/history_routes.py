@@ -25,7 +25,6 @@ def get_history():
         cursor.execute(query, (request.user_id,))
         history = cursor.fetchall()
 
-        print("Histórico retornado:", history)
         return jsonify({'history': history}), 200
 
     except Error as e:

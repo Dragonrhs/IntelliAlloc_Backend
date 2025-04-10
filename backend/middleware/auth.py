@@ -41,3 +41,11 @@ def token_required(f):
 
         return f(*args, **kwargs)
     return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not hasattr(request, 'user_role') or request.user_role != 'Admin':
+            return jsonify({'error': 'Acesso negado. Apenas administradores podem acessar este recurso.'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
