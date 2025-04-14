@@ -5,6 +5,10 @@ from mysql.connector import Error
 from datetime import datetime
 import pandas as pd
 import re
+from werkzeug.utils import secure_filename
+import os
+import tempfile
+import json
 
 ativos_bp = Blueprint('ativos', __name__)
 
@@ -63,6 +67,16 @@ def verificar_duplicidade(cursor, data, ticker, isin, cnpj, status):
             return False, f"A data do ativo com {campo} {valor} não pode ser menor que a data mais recente ({data_mais_recente.strftime('%d/%m/%Y')}) do ativo no BD"
     
     return True, None
+
+def formatar_cnpj(cnpj):
+    """Formata o CNPJ para o padrão XX.XXX.XXX/XXXX-XX"""
+    if not cnpj or cnpj == 'nan':
+        return ''
+    # Remove todos os caracteres não numéricos
+    cnpj = ''.join(filter(str.isdigit, str(cnpj)))
+    if len(cnpj) != 14:
+        return cnpj
+    return f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}"
 
 @ativos_bp.route('/api/ativos', methods=['POST'])
 @token_required
@@ -170,6 +184,20 @@ def inserir_ativo():
             restrito_alocacao
         ))
 
+        # Registrar no histórico
+        ativo_id = cursor.lastrowid
+        cursor.execute("""
+            INSERT INTO ativo_history (
+                ativo_id, user_id, action_type, changes
+            ) VALUES (
+                %s, %s, 'INSERT', %s
+            )
+        """, (
+            ativo_id,
+            request.user_id,
+            json.dumps(data)
+        ))
+
         connection.commit()
         return jsonify({'message': 'Ativo inserido com sucesso'}), 201
 
@@ -202,6 +230,12 @@ def buscar_ativos():
             return jsonify({'error': 'Tipo de busca inválido'}), 400
         
         ativos = cursor.fetchall()
+        
+        # Formatar CNPJ em todos os ativos
+        for ativo in ativos:
+            if 'cnpj' in ativo:
+                ativo['cnpj'] = formatar_cnpj(ativo['cnpj'])
+        
         cursor.close()
         conn.close()
         
@@ -268,6 +302,20 @@ def atualizar_ativo(id):
         query = f"UPDATE ativos SET {', '.join(update_fields)} WHERE id = %s"
         
         cursor.execute(query, update_values)
+
+        # Registrar no histórico
+        cursor.execute("""
+            INSERT INTO ativo_history (
+                ativo_id, user_id, action_type, changes
+            ) VALUES (
+                %s, %s, 'UPDATE', %s
+            )
+        """, (
+            id,
+            request.user_id,
+            json.dumps(data)
+        ))
+        
         conn.commit()
         
         cursor.close()
@@ -277,4 +325,393 @@ def atualizar_ativo(id):
         
     except Exception as e:
         print(f'Erro ao atualizar ativo: {str(e)}')
-        return jsonify({'error': 'Erro ao atualizar ativo'}), 500 
+        return jsonify({'error': 'Erro ao atualizar ativo'}), 500
+
+@ativos_bp.route('/api/ativos/importar-lote', methods=['POST'])
+@token_required
+def importar_ativos_lote():
+    try:
+        # Verificar se o usuário é Admin ou Research
+        if request.user_role not in ['Admin', 'Research']:
+            return jsonify({'error': 'Acesso negado: somente Admin e Research podem importar ativos em lote'}), 403
+
+        if 'file' not in request.files:
+            return jsonify({'error': 'Nenhum arquivo enviado'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
+
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({'error': 'Formato de arquivo inválido. Use .xlsx ou .xls'}), 400
+
+        # Criar um arquivo temporário
+        temp_dir = tempfile.mkdtemp()
+        temp_path = os.path.join(temp_dir, secure_filename(file.filename))
+        file.save(temp_path)
+
+        # Ler o arquivo Excel
+        df = pd.read_excel(temp_path)
+        
+        # Normalizar nomes das colunas
+        df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('(', '').str.replace(')', '')
+        
+        # Mapear nomes de colunas específicos
+        mapeamento_colunas = {
+            'risco_de_credito': 'risco_credito',
+            'prazo_total_meses': 'prazo_total',
+            'emissor_ou_emissao': 'emissor_emissao',
+            'master_ou_feeder': 'master_feeder',
+            'restrito_para_alocacao': 'restrito_alocacao'
+        }
+        
+        # Renomear colunas conforme o mapeamento
+        df = df.rename(columns=mapeamento_colunas)
+        
+        # Converter todos os valores para string, tratando valores nulos
+        for coluna in df.columns:
+            df[coluna] = df[coluna].astype(str).replace('nan', '').replace('None', '')
+        
+        # Formatar CNPJ antes de truncar
+        if 'cnpj' in df.columns:
+            df['cnpj'] = df['cnpj'].apply(formatar_cnpj)
+        
+        # Definir tamanhos máximos para cada coluna
+        tamanhos_maximos = {
+            'nome': 100,
+            'classe': 50,
+            'canal': 20,
+            'emissor': 100,
+            'risco_credito': 20,
+            'cnpj': 18,
+            'gestora': 100,
+            'prazo_total': 10,
+            'data': 10,
+            'status': 20,
+            'emissor_emissao': 20,
+            'analista_responsavel': 100,
+            'perfil': 20,
+            'master_feeder': 20,
+            'restrito_alocacao': 20
+        }
+        
+        # Truncar valores que excedem o tamanho máximo
+        for coluna in df.columns:
+            if coluna in tamanhos_maximos:
+                df[coluna] = df[coluna].str.slice(0, tamanhos_maximos[coluna])
+
+        # Definir campos obrigatórios por classe
+        campos_obrigatorios_por_classe = {
+            'Renda Fixa': [
+                'canal', 'risco_credito', 'emissor', 'ticker', 'prazo_total',
+                'status', 'data', 'emissor_emissao', 'perfil', 'analista_responsavel'
+            ],
+            'Fundos': [
+                'cnpj', 'gestora', 'prazo_total', 'data', 'canal',
+                'master_feeder', 'perfil', 'analista_responsavel', 'status'
+            ],
+            'Prev': [
+                'cnpj', 'gestora', 'prazo_total', 'data', 'canal',
+                'perfil', 'analista_responsavel', 'status'
+            ],
+            'Listados': [
+                'ticker', 'gestora', 'prazo_total', 'data', 'canal',
+                'perfil', 'status', 'analista_responsavel'
+            ],
+            'Cetipados': [
+                'ticker', 'cnpj', 'gestora', 'prazo_total', 'data',
+                'canal', 'perfil', 'status', 'analista_responsavel'
+            ],
+            'COE': [
+                'isin', 'prazo_total', 'data', 'canal', 'perfil',
+                'status', 'analista_responsavel'
+            ],
+            'Fundos Internacionais': [
+                'isin', 'gestora', 'prazo_total', 'data', 'canal', 'perfil'
+            ],
+            'Renda Fixa Internacional': [
+                'isin', 'risco_credito', 'emissor', 'prazo_total',
+                'data', 'canal', 'emissor_emissao', 'perfil'
+            ]
+        }
+
+        # Campos que podem estar em branco por classe
+        campos_em_branco_por_classe = {
+            'Renda Fixa': ['isin', 'cnpj', 'gestora', 'master_feeder'],
+            'Fundos': ['isin', 'emissor', 'risco_credito', 'ticker', 'emissor_emissao'],
+            'Prev': ['emissor', 'risco_credito', 'ticker', 'emissor_emissao', 'master_feeder'],
+            'Listados': ['emissor', 'risco_credito', 'emissor_emissao', 'master_feeder'],
+            'Cetipados': ['emissor', 'risco_credito', 'emissor_emissao', 'master_feeder'],
+            'COE': ['ticker', 'cnpj', 'master_feeder'],
+            'Fundos Internacionais': ['emissor', 'risco_credito', 'ticker', 'cnpj', 'emissor_emissao', 'master_feeder'],
+            'Renda Fixa Internacional': ['cnpj', 'gestora', 'master_feeder']
+        }
+
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor()
+        erros = []
+        sucessos = 0
+
+        # Valores válidos para campos específicos
+        classes_validas = ['Renda Fixa', 'Fundos', 'Prev', 'Listados', 'Cetipados', 'COE', 'Fundos Internacionais', 'Renda Fixa Internacional']
+        status_validos = ['Em Analise', 'Aprovado', 'Reprovado']
+        perfis_validos = ['Conservador', 'Moderado', 'Sofisticado', 'Todos']
+        master_feeder_validos = ['Master', 'Feeder', '']
+
+        for index, row in df.iterrows():
+            try:
+                # Preparar os dados
+                data = row.to_dict()
+                
+                # Validar classe
+                classe = data.get('classe')
+                if not classe or classe not in classes_validas:
+                    erros.append({
+                        'linha': index + 2,
+                        'erro': f'Classe inválida: {classe}. Valores válidos: {", ".join(classes_validas)}'
+                    })
+                    continue
+
+                # Validar campos obrigatórios para a classe
+                campos_obrigatorios = campos_obrigatorios_por_classe.get(classe, [])
+                campos_vazios = [campo for campo in campos_obrigatorios if not data.get(campo) or str(data.get(campo)).strip() == '']
+                if campos_vazios:
+                    erros.append({
+                        'linha': index + 2,
+                        'erro': f'Campos obrigatórios vazios para a classe {classe}: {", ".join(campos_vazios)}'
+                    })
+                    continue
+
+                # Validar valores específicos
+                if data.get('status') not in status_validos:
+                    erros.append({
+                        'linha': index + 2,
+                        'erro': f'Status inválido: {data.get("status")}. Valores válidos: {", ".join(status_validos)}'
+                    })
+                    continue
+
+                if data.get('perfil') not in perfis_validos:
+                    erros.append({
+                        'linha': index + 2,
+                        'erro': f'Perfil inválido: {data.get("perfil")}. Valores válidos: {", ".join(perfis_validos)}'
+                    })
+                    continue
+
+                if data.get('master_feeder') not in master_feeder_validos:
+                    erros.append({
+                        'linha': index + 2,
+                        'erro': f'Master/Feeder inválido: {data.get("master_feeder")}. Valores válidos: {", ".join(master_feeder_validos)}'
+                    })
+                    continue
+
+                # Tratar campos que podem ser NULL
+                master_feeder = data.get('master_feeder')
+                if master_feeder == '':
+                    master_feeder = None
+
+                emissor_emissao = data.get('emissor_emissao')
+                if emissor_emissao == '':
+                    emissor_emissao = None
+
+                # Tratar campo restrito_alocacao
+                restrito_alocacao = data.get('restrito_alocacao')
+                if restrito_alocacao != 'Restrito':
+                    restrito_alocacao = None
+
+                # Limpar CNPJ
+                cnpj = limpar_cnpj(str(data.get('cnpj', '')))
+
+                # Tratar ISIN vazio
+                isin = data.get('isin')
+                if not isin or str(isin).strip() == '':
+                    isin = None
+
+                # Tratar ticker vazio
+                ticker = data.get('ticker')
+                if not ticker or str(ticker).strip() == '':
+                    ticker = None
+
+                # Verificar duplicidade e data
+                valido, mensagem = verificar_duplicidade(
+                    cursor,
+                    data.get('data'),
+                    ticker,
+                    isin,
+                    cnpj,
+                    data.get('status')
+                )
+                
+                if not valido:
+                    erros.append({
+                        'linha': index + 2,
+                        'erro': mensagem
+                    })
+                    continue
+
+                # Calcular prazo restante
+                prazo_restante = calcular_prazo_restante(data.get('data'), data.get('prazo_total'))
+
+                query = """
+                    INSERT INTO ativos (
+                        data, nome, classe, canal, emissor, risco_credito,
+                        ticker, isin, cnpj, gestora, prazo_total,
+                        prazo_restante, status, emissor_emissao,
+                        analista_responsavel, perfil, master_feeder,
+                        restrito_alocacao
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s
+                    )
+                """
+
+                cursor.execute(query, (
+                    data.get('data'),
+                    data.get('nome'),
+                    data.get('classe'),
+                    data.get('canal'),
+                    data.get('emissor'),
+                    data.get('risco_credito'),
+                    ticker,
+                    isin,
+                    cnpj,
+                    data.get('gestora'),
+                    data.get('prazo_total'),
+                    prazo_restante,
+                    data.get('status'),
+                    emissor_emissao,
+                    data.get('analista_responsavel'),
+                    data.get('perfil'),
+                    master_feeder,
+                    restrito_alocacao
+                ))
+
+                # Registrar no histórico
+                ativo_id = cursor.lastrowid
+                cursor.execute("""
+                    INSERT INTO ativo_history (
+                        ativo_id, user_id, action_type, changes
+                    ) VALUES (
+                        %s, %s, 'IMPORT', %s
+                    )
+                """, (
+                    ativo_id,
+                    request.user_id,
+                    json.dumps(data)
+                ))
+
+                sucessos += 1
+
+            except Exception as e:
+                erros.append({
+                    'linha': index + 2,
+                    'erro': str(e)
+                })
+
+        connection.commit()
+        
+        # Limpar arquivo temporário
+        os.remove(temp_path)
+        os.rmdir(temp_dir)
+
+        total_linhas = len(df)
+        total_erros = len(erros)
+        total_sucessos = sucessos
+
+        return jsonify({
+            'message': f'Importação concluída. Total de linhas: {total_linhas}. Ativos inseridos com sucesso: {total_sucessos}. Ativos com erro: {total_erros}.',
+            'erros': erros
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Erro ao importar ativos em lote: {str(e)}'}), 500
+    finally:
+        if 'connection' in locals() and connection.is_connected():
+            cursor.close()
+            connection.close() 
+
+@ativos_bp.route('/api/ativos/historico/<int:ativo_id>', methods=['GET'])
+@token_required
+def consultar_historico(ativo_id):
+    try:
+        print(f'Tentando consultar histórico para ativo_id: {ativo_id}')
+        connection = get_db_connection()
+        if connection is None:
+            print('Erro: Conexão com o banco falhou')
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor(dictionary=True)
+        
+        # Verificar se o ativo existe
+        cursor.execute('SELECT id FROM ativos WHERE id = %s', (ativo_id,))
+        if not cursor.fetchone():
+            print(f'Erro: Ativo com id {ativo_id} não encontrado')
+            cursor.close()
+            connection.close()
+            return jsonify({'error': 'Ativo não encontrado'}), 404
+        
+        # Consultar histórico do ativo
+        print('Executando consulta de histórico')
+        cursor.execute("""
+            SELECT 
+                h.id,
+                h.action_type,
+                h.action_date,
+                h.changes,
+                u.username as user_name
+            FROM ativo_history h
+            JOIN user u ON h.user_id = u.id
+            WHERE h.ativo_id = %s
+            ORDER BY h.action_date DESC
+        """, (ativo_id,))
+        
+        historico = cursor.fetchall()
+        print(f'Histórico encontrado: {len(historico)} registros')
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({'historico': historico}), 200
+        
+    except Exception as e:
+        print(f'Erro ao consultar histórico: {str(e)}')
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': 'Erro ao consultar histórico'}), 500
+
+@ativos_bp.route('/api/ativos', methods=['GET'])
+@token_required
+def listar_ativos():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Modificar a query para incluir a última data de ação do histórico
+        query = """
+            SELECT 
+                a.*,
+                (SELECT MAX(h.action_date) 
+                 FROM ativo_history h 
+                 WHERE h.ativo_id = a.id) as action_date
+            FROM ativos a
+            ORDER BY a.nome
+        """
+        
+        cursor.execute(query)
+        ativos = cursor.fetchall()
+        
+        # Formatar CNPJ em todos os ativos
+        for ativo in ativos:
+            if 'cnpj' in ativo:
+                ativo['cnpj'] = formatar_cnpj(ativo['cnpj'])
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'ativos': ativos}), 200
+        
+    except Exception as e:
+        print(f'Erro ao listar ativos: {str(e)}')
+        return jsonify({'error': 'Erro ao listar ativos'}), 500 
