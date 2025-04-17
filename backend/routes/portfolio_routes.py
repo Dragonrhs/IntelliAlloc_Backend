@@ -470,4 +470,91 @@ Por favor, analise e liste apenas as principais mudanças em formato de tópicos
         print(f"Erro ao comparar carteiras: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': 'Erro ao processar a comparação das carteiras'}), 500 
+        return jsonify({'error': 'Erro ao processar a comparação das carteiras'}), 500
+
+@portfolio_bp.route('/api/avaliacao-classe/<mes>', methods=['GET'])
+@token_required
+def get_avaliacao_classe_mes(mes):
+    try:
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT classe_ativo, nota
+            FROM avaliacao_classe_ativo 
+            WHERE mes_referencia = %s
+            ORDER BY classe_ativo
+        """, (mes,))
+        
+        avaliacoes = cursor.fetchall()
+        
+        return jsonify({'avaliacoes': avaliacoes}), 200
+
+    except Error as e:
+        return jsonify({'error': f'Erro ao buscar avaliações: {str(e)}'}), 500
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+@portfolio_bp.route('/api/avaliacao-classe/adicionar', methods=['POST'])
+@token_required
+def adicionar_avaliacao_classe():
+    # Verificar se o usuário tem permissão
+    if request.user_role not in ['Admin', 'Alocacao']:
+        return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem adicionar avaliações'}), 403
+
+    data = request.get_json()
+    if not data or 'mes_referencia' not in data or 'avaliacoes' not in data:
+        return jsonify({'error': 'Mês de referência e avaliações são obrigatórios'}), 400
+
+    mes_referencia = data['mes_referencia']
+    avaliacoes = data['avaliacoes']
+
+    # Validar formato do mês
+    if not validate_mes_format(mes_referencia):
+        return jsonify({'error': 'Formato do mês inválido. Use o formato YYYY-MM'}), 400
+
+    # Validar se todas as avaliações têm os campos necessários
+    for avaliacao in avaliacoes:
+        if not all(key in avaliacao for key in ['classe_ativo', 'nota']):
+            return jsonify({'error': 'Todos os campos da avaliação são obrigatórios'}), 400
+        
+        if not isinstance(avaliacao['nota'], int) or avaliacao['nota'] < -2 or avaliacao['nota'] > 2:
+            return jsonify({'error': 'A nota deve ser um número inteiro entre -2 e 2'}), 400
+
+    try:
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor()
+
+        # Inserir cada avaliação
+        for avaliacao in avaliacoes:
+            cursor.execute("""
+                INSERT INTO avaliacao_classe_ativo 
+                (mes_referencia, classe_ativo, nota)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE nota = VALUES(nota)
+            """, (
+                mes_referencia,
+                avaliacao['classe_ativo'],
+                avaliacao['nota']
+            ))
+
+        connection.commit()
+
+        return jsonify({
+            'message': f'Avaliações do mês {mes_referencia} adicionadas com sucesso'
+        }), 201
+
+    except Error as e:
+        connection.rollback()
+        return jsonify({'error': f'Erro ao adicionar avaliações: {str(e)}'}), 500
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close() 
