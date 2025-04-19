@@ -6,6 +6,8 @@ from routes.client_routes import client_bp
 from routes.history_routes import history_bp
 from routes.portfolio_routes import portfolio_bp
 from routes.statistics_routes import statistics_bp
+from routes.ativos_routes import ativos_bp
+from flask_cors import CORS
 
 app = Flask(__name__)
 
@@ -13,9 +15,16 @@ app = Flask(__name__)
 config = load_config()
 app.secret_key = config['SECRET_KEY']
 
-# Configurar CORS
-from flask_cors import CORS
-CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+# Configurar CORS com todas as opções necessárias
+CORS(app, 
+     resources={r"/*": {
+         "origins": ["http://localhost:3000"],
+         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+         "expose_headers": ["Content-Type", "Authorization"],
+         "supports_credentials": True,
+         "max_age": 3600
+     }})
 
 # Registrar blueprints
 app.register_blueprint(auth_bp, url_prefix='/')
@@ -24,6 +33,7 @@ app.register_blueprint(client_bp, url_prefix='/')
 app.register_blueprint(history_bp, url_prefix='/')
 app.register_blueprint(portfolio_bp, url_prefix='/')
 app.register_blueprint(statistics_bp, url_prefix='/')
+app.register_blueprint(ativos_bp, url_prefix='/')
 
 if __name__ == '__main__':
     app.run(debug=True)

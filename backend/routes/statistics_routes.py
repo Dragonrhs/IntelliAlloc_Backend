@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from utils.db import get_db_connection
-from middleware.auth import token_required, admin_required
+from middleware.auth import token_required
 from mysql.connector import Error
 import json
 from datetime import datetime
@@ -17,9 +17,9 @@ def get_estatisticas_usuarios():
 
         cursor = connection.cursor(dictionary=True)
 
-        # Verificar se o usuário é Admin
-        if request.user_role != 'Admin':
-            return jsonify({'error': 'Acesso negado: somente Admins podem ver estatísticas'}), 403
+        # Verificar se o usuário é Admin ou Alocacao
+        if request.user_role not in ['Admin', 'Alocacao']:
+            return jsonify({'error': 'Acesso negado: somente Admins e Alocacao podem ver estatísticas'}), 403
 
         # Query para buscar usuários e quantidade de clientes
         query = """
@@ -55,9 +55,9 @@ def get_estatisticas_perfil_risco():
 
         cursor = connection.cursor(dictionary=True)
 
-        # Verificar se o usuário é Admin
-        if request.user_role != 'Admin':
-            return jsonify({'error': 'Acesso negado: somente Admins podem ver estatísticas'}), 403
+        # Verificar se o usuário é Admin ou Alocacao
+        if request.user_role not in ['Admin', 'Alocacao']:
+            return jsonify({'error': 'Acesso negado: somente Admins e Alocacao podem ver estatísticas'}), 403
 
         # Obter o id_usuario da query string se fornecido
         user_id = request.args.get('id_usuario')
@@ -109,9 +109,9 @@ def get_estatisticas_clientes_tempo():
 
         cursor = connection.cursor(dictionary=True)
 
-        # Verificar se o usuário é Admin
-        if request.user_role != 'Admin':
-            return jsonify({'error': 'Acesso negado: somente Admins podem ver estatísticas'}), 403
+        # Verificar se o usuário é Admin ou Alocacao
+        if request.user_role not in ['Admin', 'Alocacao']:
+            return jsonify({'error': 'Acesso negado: somente Admins e Alocacao podem ver estatísticas'}), 403
 
         # Obter parâmetros da query string
         user_id = request.args.get('id_usuario')
@@ -164,9 +164,9 @@ def get_usuarios_por_perfil(perfil):
 
         cursor = connection.cursor(dictionary=True)
 
-        # Verificar se o usuário é Admin
-        if request.user_role != 'Admin':
-            return jsonify({'error': 'Acesso negado: somente Admins podem ver estatísticas'}), 403
+        # Verificar se o usuário é Admin ou Alocacao
+        if request.user_role not in ['Admin', 'Alocacao']:
+            return jsonify({'error': 'Acesso negado: somente Admins e Alocacao podem ver estatísticas'}), 403
 
         # Query para buscar usuários e quantidade de clientes por perfil
         query = """
