@@ -73,16 +73,15 @@ def retry_with_backoff(max_retries=3, initial_delay=1):
     return decorator
 
 def validate_portfolio_sum(carteiras, perfil):
-    """Valida se a soma dos percentuais das bandas é 100% para cada tipo de banda"""
+    """Valida se a soma dos percentuais da banda neutra é 100%"""
     carteiras_perfil = [c for c in carteiras if c['perfil'] == perfil]
     if not carteiras_perfil:
         return True, None
 
-    # Validar cada tipo de banda
-    for banda in ['banda_inferior', 'banda_neutra', 'banda_superior']:
-        soma_percentuais = sum(float(c[banda] or 0) for c in carteiras_perfil)
-        if abs(soma_percentuais - 100) > 0.01:  # Tolerância de 0.01%
-            return False, banda
+    # Validar apenas a banda neutra
+    soma_percentuais = sum(float(c['banda_neutra'] or 0) for c in carteiras_perfil)
+    if abs(soma_percentuais - 100) > 0.01:  # Tolerância de 0.01%
+        return False, 'banda_neutra'
     return True, None
 
 def validate_mes_format(mes):
