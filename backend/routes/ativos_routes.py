@@ -80,7 +80,7 @@ def formatar_cnpj(cnpj):
 
 @ativos_bp.route('/api/ativos', methods=['POST'])
 @token_required
-def inserir_ativo():
+def inserir_ativo(current_user=None):
     try:
         # Verificar se o usuário é Admin ou Research
         if request.user_role not in ['Admin', 'Research']:
@@ -210,7 +210,7 @@ def inserir_ativo():
 
 @ativos_bp.route('/api/ativos/buscar', methods=['GET'])
 @token_required
-def buscar_ativos():
+def buscar_ativos(current_user=None):
     tipo = request.args.get('tipo')
     valor = request.args.get('valor')
     
@@ -247,7 +247,7 @@ def buscar_ativos():
 
 @ativos_bp.route('/api/ativos/<int:id>', methods=['PUT'])
 @token_required
-def atualizar_ativo(id):
+def atualizar_ativo(id, current_user=None):
     try:
         # Verificar se o usuário é Admin ou Research
         if request.user_role not in ['Admin', 'Research']:
@@ -329,7 +329,7 @@ def atualizar_ativo(id):
 
 @ativos_bp.route('/api/ativos/importar-lote', methods=['POST'])
 @token_required
-def importar_ativos_lote():
+def importar_ativos_lote(current_user=None):
     try:
         # Verificar se o usuário é Admin ou Research
         if request.user_role not in ['Admin', 'Research']:
@@ -634,7 +634,7 @@ def importar_ativos_lote():
 
 @ativos_bp.route('/api/ativos/historico/<int:ativo_id>', methods=['GET'])
 @token_required
-def consultar_historico(ativo_id):
+def consultar_historico(ativo_id, current_user=None):
     try:
         print(f'Tentando consultar histórico para ativo_id: {ativo_id}')
         connection = get_db_connection()
@@ -683,7 +683,7 @@ def consultar_historico(ativo_id):
 
 @ativos_bp.route('/api/ativos', methods=['GET'])
 @token_required
-def listar_ativos():
+def listar_ativos(current_user=None):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)

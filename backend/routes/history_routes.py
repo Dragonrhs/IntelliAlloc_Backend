@@ -7,7 +7,7 @@ history_bp = Blueprint('history', __name__)
 
 @history_bp.route('/history', methods=['GET'])
 @token_required
-def get_history():
+def get_history(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -36,7 +36,7 @@ def get_history():
 
 @history_bp.route('/system-history', methods=['GET'])
 @token_required
-def get_system_history():
+def get_system_history(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:

@@ -7,6 +7,7 @@ import uuid
 import datetime
 import random
 import string
+from middleware.auth import token_required
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -34,13 +35,40 @@ def register():
         if cursor.fetchone():
             return jsonify({'error': 'Username ou email já existe'}), 400
 
-        query = "INSERT INTO user (username, email, password_hash, role) VALUES (%s, %s, %s, %s)"
-        cursor.execute(query, (username, email, hashed_password, 'Membro'))
+        # Obter o cargo_id de "Membro"
+        cursor.execute("SELECT id FROM cargos WHERE nome = 'Membro'")
+        cargo_id = cursor.fetchone()[0]
+
+        query = "INSERT INTO user (username, email, password_hash, cargo_id) VALUES (%s, %s, %s, %s)"
+        cursor.execute(query, (username, email, hashed_password, cargo_id))
+        user_id = cursor.lastrowid
+        
+        # Copiar as permissões do cargo para o usuário
+        cursor.execute("""
+            SELECT funcionalidade_id 
+            FROM permissoes_cargos
+            WHERE cargo_id = %s
+        """, (cargo_id,))
+        
+        permissoes_cargo = cursor.fetchall()
+        
+        # Inserir as permissões para o novo usuário
+        for permissao in permissoes_cargo:
+            cursor.execute("""
+                INSERT INTO permissoes_usuarios (user_id, funcionalidade_id, permitido)
+                VALUES (%s, %s, TRUE)
+            """, (user_id, permissao[0]))
+        
         connection.commit()
         
-        return jsonify({'message': 'Usuário registrado com sucesso'}), 201
+        return jsonify({
+            'message': 'Usuário registrado com sucesso',
+            'permissoes_copiadas': len(permissoes_cargo)
+        }), 201
 
     except Error as e:
+        if connection:
+            connection.rollback()
         return jsonify({'error': f'Erro ao registrar usuário: {str(e)}'}), 500
     finally:
         if connection.is_connected():
@@ -61,25 +89,33 @@ def login():
         if connection is None:
             return jsonify({'error': 'Erro de conexão com o banco'}), 500
 
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
         
-        cursor.execute("SELECT id, password_hash, role FROM user WHERE username = %s", (username,))
+        # Buscar informações do usuário incluindo o cargo
+        cursor.execute("""
+            SELECT u.id, u.password_hash, u.cargo_id, c.nome as cargo_nome 
+            FROM user u
+            JOIN cargos c ON u.cargo_id = c.id
+            WHERE u.username = %s
+        """, (username,))
         user = cursor.fetchone()
 
-        if user and bcrypt.checkpw(password.encode('utf-8'), user[1].encode('utf-8')):
+        if user and bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
             session_token = str(uuid.uuid4())
             expires_at = datetime.datetime.now() + datetime.timedelta(hours=24)
             
             cursor.execute("""
                 INSERT INTO sessions (user_id, session_token, expires_at) 
                 VALUES (%s, %s, %s)
-            """, (user[0], session_token, expires_at))
+            """, (user['id'], session_token, expires_at))
             connection.commit()
 
             response = make_response(jsonify({
                 'message': 'Login bem-sucedido',
                 'expires_at': expires_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'role': user[2]
+                'cargo_id': user['cargo_id'],
+                'cargo_nome': user['cargo_nome'],
+                'user_id': user['id']
             }), 200)
             response.set_cookie(
                 'session_token',
@@ -102,9 +138,8 @@ def login():
 
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
-    from middleware.auth import token_required
     @token_required
-    def logout_protected():
+    def logout_protected(current_user=None):
         token = request.cookies.get('session_token')
         
         try:
@@ -216,3 +251,34 @@ def reset_password():
         if connection.is_connected():
             cursor.close()
             connection.close()
+
+@auth_bp.route('/me', methods=['GET'])
+@token_required
+def get_current_user(current_user):
+    """
+    Retorna as informações do usuário logado
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Buscar informações do usuário incluindo o cargo
+        cursor.execute("""
+            SELECT u.id, u.username, u.email, c.nome as role, u.cargo_id
+            FROM user u
+            LEFT JOIN cargos c ON u.cargo_id = c.id
+            WHERE u.id = %s
+        """, (current_user['id'],))
+        
+        user = cursor.fetchone()
+        
+        if not user:
+            return jsonify({'message': 'Usuário não encontrado'}), 404
+            
+        return jsonify(user)
+        
+    except Exception as e:
+        return jsonify({'message': str(e)}), 400
+    finally:
+        cursor.close()
+        conn.close()

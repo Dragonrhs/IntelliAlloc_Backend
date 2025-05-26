@@ -91,7 +91,7 @@ def validate_mes_format(mes):
 
 @portfolio_bp.route('/api/carteira/adicionar', methods=['POST'])
 @token_required
-def adicionar_carteira():
+def adicionar_carteira(current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem adicionar carteiras recomendadas'}), 403
@@ -163,7 +163,7 @@ def adicionar_carteira():
 
 @portfolio_bp.route('/api/carteira/editar/<mes>', methods=['PUT'])
 @token_required
-def editar_carteira_mes(mes):
+def editar_carteira_mes(mes, current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem editar carteiras recomendadas'}), 403
@@ -234,7 +234,7 @@ def editar_carteira_mes(mes):
 
 @portfolio_bp.route('/api/carteira/meses', methods=['GET'])
 @token_required
-def get_meses_disponiveis():
+def get_meses_disponiveis(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -259,7 +259,7 @@ def get_meses_disponiveis():
 
 @portfolio_bp.route('/recommended-portfolio', methods=['POST'])
 @token_required
-def add_recommended_portfolio():
+def add_recommended_portfolio(current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem criar carteiras recomendadas'}), 403
@@ -286,7 +286,7 @@ def add_recommended_portfolio():
         cursor.execute("""
             INSERT INTO recommended_portfolio (user_id, profile, asset_classes)
             VALUES (%s, %s, %s)
-        """, (request.user_id, profile, json.dumps(asset_classes)))
+        """, (current_user, profile, json.dumps(asset_classes)))
         
         portfolio_id = cursor.lastrowid
         connection.commit()
@@ -305,7 +305,7 @@ def add_recommended_portfolio():
 
 @portfolio_bp.route('/recommended-portfolios', methods=['GET'])
 @token_required
-def get_recommended_portfolios():
+def get_recommended_portfolios(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -333,7 +333,7 @@ def get_recommended_portfolios():
 
 @portfolio_bp.route('/api/carteira/<mes>', methods=['GET'])
 @token_required
-def get_carteira_mes(mes):
+def get_carteira_mes(mes, current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -372,7 +372,7 @@ def call_gemini_api(prompt):
 
 @portfolio_bp.route('/api/carteira/comparar', methods=['POST'])
 @token_required
-def comparar_carteiras():
+def comparar_carteiras(current_user=None):
     try:
         data = request.get_json()
         mes1 = data.get('mes1')
@@ -473,7 +473,7 @@ Por favor, analise e liste apenas as principais mudanças em formato de tópicos
 
 @portfolio_bp.route('/api/avaliacao-classe/<mes>', methods=['GET'])
 @token_required
-def get_avaliacao_classe_mes(mes):
+def get_avaliacao_classe_mes(mes, current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -500,7 +500,7 @@ def get_avaliacao_classe_mes(mes):
 
 @portfolio_bp.route('/api/avaliacao-classe/adicionar', methods=['POST'])
 @token_required
-def adicionar_avaliacao_classe():
+def adicionar_avaliacao_classe(current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem adicionar avaliações'}), 403
