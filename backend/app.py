@@ -7,7 +7,10 @@ from routes.history_routes import history_bp
 from routes.portfolio_routes import portfolio_bp
 from routes.statistics_routes import statistics_bp
 from routes.ativos_routes import ativos_bp
+from routes.parametros_routes import parametros_bp
+from routes.ia_routes import ia_bp
 from flask_cors import CORS
+from middleware.auth import token_required
 
 app = Flask(__name__)
 
@@ -34,6 +37,8 @@ app.register_blueprint(history_bp, url_prefix='/')
 app.register_blueprint(portfolio_bp, url_prefix='/')
 app.register_blueprint(statistics_bp, url_prefix='/')
 app.register_blueprint(ativos_bp, url_prefix='/')
+app.register_blueprint(parametros_bp, url_prefix='/')
+app.register_blueprint(ia_bp)
 
 if __name__ == '__main__':
     app.run(debug=True)
