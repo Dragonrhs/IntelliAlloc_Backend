@@ -9,6 +9,7 @@ from routes.statistics_routes import statistics_bp
 from routes.ativos_routes import ativos_bp
 from routes.parametros_routes import parametros_bp
 from routes.ia_routes import ia_bp
+from routes.permissions_routes import permissions_bp
 from flask_cors import CORS
 from middleware.auth import token_required
 
@@ -39,6 +40,7 @@ app.register_blueprint(statistics_bp, url_prefix='/')
 app.register_blueprint(ativos_bp, url_prefix='/')
 app.register_blueprint(parametros_bp, url_prefix='/')
 app.register_blueprint(ia_bp)
+app.register_blueprint(permissions_bp, url_prefix='/')
 
 if __name__ == '__main__':
     app.run(debug=True)

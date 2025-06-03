@@ -75,7 +75,7 @@ def calculate_risk_profile(score):
 
 @client_bp.route('/add-client', methods=['POST'])
 @token_required
-def add_client():
+def add_client(current_user=None):
     data = request.get_json()
     client_name = data.get('client_name')
     q1 = data.get('q1_investment_duration')
@@ -120,7 +120,7 @@ def add_client():
 
 @client_bp.route('/clients', methods=['GET'])
 @token_required
-def get_clients():
+def get_clients(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -150,7 +150,7 @@ def get_clients():
 
 @client_bp.route('/client/<int:client_id>', methods=['GET', 'PUT', 'DELETE'])
 @token_required
-def manage_client(client_id):
+def manage_client(client_id, current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:

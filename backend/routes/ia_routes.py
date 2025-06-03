@@ -78,7 +78,7 @@ def gerar_prompt(carteiras, avaliacoes, perfil, carteira_anterior_texto):
 
 @ia_bp.route('/api/ia/sugerir-banda-neutra', methods=['POST'])
 @token_required
-def sugerir_banda_neutra():
+def sugerir_banda_neutra(current_user=None):
     try:
         data = request.get_json()
         carteiras = data.get('carteiras', [])
@@ -167,4 +167,4 @@ def sugerir_banda_neutra():
             return jsonify({'error': f'Erro ao processar resposta da IA: {str(e)}'}), 500
 
     except Exception as e:
-        return jsonify({'error': f'Erro ao processar sugestões da IA: {str(e)}'}), 500 
+        return jsonify({'error': f'Erro ao processar sugestões da IA: {str(e)}'}), 500

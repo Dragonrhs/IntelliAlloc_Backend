@@ -8,7 +8,7 @@ parametros_bp = Blueprint('parametros', __name__)
 # Rotas para Parâmetros de Rebalanceamento
 @parametros_bp.route('/api/parametros', methods=['GET'])
 @token_required
-def get_parametros():
+def get_parametros(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -33,7 +33,7 @@ def get_parametros():
 
 @parametros_bp.route('/api/parametros', methods=['POST'])
 @token_required
-def adicionar_parametro():
+def adicionar_parametro(current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem adicionar parâmetros'}), 403
@@ -77,7 +77,7 @@ def adicionar_parametro():
 
 @parametros_bp.route('/api/parametros/<int:parametro_id>', methods=['PUT'])
 @token_required
-def editar_parametro(parametro_id):
+def editar_parametro(parametro_id, current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem editar parâmetros'}), 403
@@ -126,7 +126,7 @@ def editar_parametro(parametro_id):
 
 @parametros_bp.route('/api/parametros/<int:parametro_id>', methods=['DELETE'])
 @token_required
-def excluir_parametro(parametro_id):
+def excluir_parametro(parametro_id, current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem excluir parâmetros'}), 403
@@ -159,7 +159,7 @@ def excluir_parametro(parametro_id):
 # Rotas para Avaliação de Parâmetros por Classe
 @parametros_bp.route('/api/avaliacao-parametros/<mes>', methods=['GET'])
 @token_required
-def get_avaliacao_parametros(mes):
+def get_avaliacao_parametros(mes, current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -188,7 +188,7 @@ def get_avaliacao_parametros(mes):
 
 @parametros_bp.route('/api/avaliacao-parametros', methods=['POST'])
 @token_required
-def adicionar_avaliacao_parametros():
+def adicionar_avaliacao_parametros(current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem adicionar avaliações'}), 403
@@ -246,7 +246,7 @@ def adicionar_avaliacao_parametros():
 
 @parametros_bp.route('/api/avaliacao-parametros/<int:avaliacao_id>', methods=['PUT'])
 @token_required
-def editar_avaliacao_parametros(avaliacao_id):
+def editar_avaliacao_parametros(avaliacao_id, current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem editar avaliações'}), 403
@@ -291,7 +291,7 @@ def editar_avaliacao_parametros(avaliacao_id):
 
 @parametros_bp.route('/api/avaliacao-parametros/<int:avaliacao_id>', methods=['DELETE'])
 @token_required
-def excluir_avaliacao_parametros(avaliacao_id):
+def excluir_avaliacao_parametros(avaliacao_id, current_user=None):
     # Verificar se o usuário tem permissão
     if request.user_role not in ['Admin', 'Alocacao']:
         return jsonify({'error': 'Acesso negado: somente usuários com cargo de Admin ou Alocacao podem excluir avaliações'}), 403

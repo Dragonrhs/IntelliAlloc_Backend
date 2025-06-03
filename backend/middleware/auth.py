@@ -16,7 +16,7 @@ def token_required(f):
             if connection is None:
                 return jsonify({'error': 'Erro de conexão com o banco'}), 500
 
-            cursor = connection.cursor()
+            cursor = connection.cursor(dictionary=True)
             cursor.execute("""
                 SELECT user_id FROM sessions 
                 WHERE session_token = %s 
@@ -27,10 +27,31 @@ def token_required(f):
             if not session_data:
                 return jsonify({'error': 'Token inválido ou expirado'}), 401
             
-            request.user_id = session_data[0]
-            # Adicionar role para verificações futuras
-            cursor.execute("SELECT role FROM user WHERE id = %s", (request.user_id,))
-            request.user_role = cursor.fetchone()[0]
+            user_id = session_data['user_id']
+            request.user_id = user_id
+            
+            # Buscar informações do usuário incluindo cargo
+            cursor.execute("""
+                SELECT u.id, u.cargo_id, c.nome as cargo_nome
+                FROM user u
+                JOIN cargos c ON u.cargo_id = c.id
+                WHERE u.id = %s
+            """, (user_id,))
+            user_data = cursor.fetchone()
+            
+            if not user_data:
+                return jsonify({'error': 'Usuário não encontrado'}), 404
+                
+            # Adicionar cargo_id e cargo_nome ao request para verificações futuras
+            request.user_cargo_id = user_data['cargo_id']
+            request.user_role = user_data['cargo_nome']  # Mantemos user_role para compatibilidade
+            
+            # Adicionar o usuário completo aos kwargs para o middleware de permissões
+            kwargs['current_user'] = {
+                'id': user_id,
+                'cargo_id': user_data['cargo_id'],
+                'cargo_nome': user_data['cargo_nome']
+            }
 
         except Error as e:
             return jsonify({'error': f'Erro ao verificar token: {str(e)}'}), 500

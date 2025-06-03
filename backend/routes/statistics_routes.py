@@ -9,7 +9,7 @@ statistics_bp = Blueprint('statistics', __name__)
 
 @statistics_bp.route('/api/estatisticas/usuarios', methods=['GET'])
 @token_required
-def get_estatisticas_usuarios():
+def get_estatisticas_usuarios(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -47,7 +47,7 @@ def get_estatisticas_usuarios():
 
 @statistics_bp.route('/api/estatisticas/perfil_risco', methods=['GET'])
 @token_required
-def get_estatisticas_perfil_risco():
+def get_estatisticas_perfil_risco(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -101,7 +101,7 @@ def get_estatisticas_perfil_risco():
 
 @statistics_bp.route('/api/estatisticas/clientes-tempo', methods=['GET'])
 @token_required
-def get_estatisticas_clientes_tempo():
+def get_estatisticas_clientes_tempo(current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
@@ -156,7 +156,7 @@ def get_estatisticas_clientes_tempo():
 
 @statistics_bp.route('/api/estatisticas/usuarios/por-perfil/<perfil>', methods=['GET'])
 @token_required
-def get_usuarios_por_perfil(perfil):
+def get_usuarios_por_perfil(perfil, current_user=None):
     try:
         connection = get_db_connection()
         if connection is None:
