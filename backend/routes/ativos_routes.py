@@ -715,3 +715,327 @@ def listar_ativos(current_user=None):
     except Exception as e:
         print(f'Erro ao listar ativos: {str(e)}')
         return jsonify({'error': 'Erro ao listar ativos'}), 500 
+
+@ativos_bp.route('/api/ativos/classificacoes', methods=['GET'])
+@token_required
+def listar_classificacoes(current_user=None):
+    """Retorna todas as classificações de ativos cadastradas"""
+    try:
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor(dictionary=True)
+        
+        query = """
+            SELECT 
+                c.id, c.ativo_id, c.classe_investimento, c.indexador_primario, 
+                c.tipo_indexador, c.data_classificacao
+            FROM 
+                ativo_classificacao c
+        """
+        
+        cursor.execute(query)
+        classificacoes = cursor.fetchall()
+        
+        # Converter datas para string para serialização JSON
+        for classificacao in classificacoes:
+            if 'data_classificacao' in classificacao and classificacao['data_classificacao']:
+                classificacao['data_classificacao'] = classificacao['data_classificacao'].isoformat()
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({'classificacoes': classificacoes}), 200
+    
+    except Error as e:
+        print(f"Erro SQL ao listar classificações: {str(e)}")
+        return jsonify({'error': f'Erro ao buscar classificações: {str(e)}'}), 500
+
+@ativos_bp.route('/api/ativos/classificacao', methods=['POST'])
+@token_required
+def criar_classificacao(current_user=None):
+    """Cria uma nova classificação para um ativo"""
+    connection = None
+    cursor = None
+    try:
+        # Verificar se o usuário é Admin ou Research
+        if request.user_role not in ['Admin', 'Research']:
+            return jsonify({'error': 'Acesso negado: somente Admin e Research podem criar classificações'}), 403
+
+        data = request.get_json()
+        print(f"Dados recebidos na criação: {data}")
+        
+        # Validar campos obrigatórios
+        campos_obrigatorios = ['ativo_id', 'classe_investimento', 'indexador_primario', 'tipo_indexador']
+        for campo in campos_obrigatorios:
+            if campo not in data:
+                return jsonify({'error': f'Campo obrigatório não fornecido: {campo}'}), 400
+
+        # Validar tipo de indexador
+        if data['tipo_indexador'] not in ['cnpj', 'ticker', 'isin']:
+            return jsonify({'error': 'Tipo de indexador inválido. Deve ser cnpj, ticker ou isin'}), 400
+
+        # Validar classe de investimento
+        classes_investimento_validas = [
+            'Pós-Fixado', 'Inflação', 'Pré-Fixado', 'Multimercado',
+            'Renda Variável Brasil', 'Fundos Listados', 'Alternativos',
+            'Renda Fixa Global', 'Renda Variável Internacional'
+        ]
+        if data['classe_investimento'] not in classes_investimento_validas:
+            return jsonify({'error': f'Classe de investimento inválida. Deve ser uma das seguintes: {", ".join(classes_investimento_validas)}'}), 400
+
+        # Garantir que indexador_primario não seja None
+        if data['indexador_primario'] is None:
+            data['indexador_primario'] = ''
+
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor(dictionary=True)
+
+        # Verificar se o ativo existe
+        cursor.execute("SELECT id FROM ativos WHERE id = %s", (data['ativo_id'],))
+        if not cursor.fetchone():
+            return jsonify({'error': 'Ativo não encontrado'}), 404
+
+        # Verificar se já existe uma classificação para este ativo
+        cursor.execute("SELECT id FROM ativo_classificacao WHERE ativo_id = %s", (data['ativo_id'],))
+        if cursor.fetchone():
+            return jsonify({'error': 'Já existe uma classificação para este ativo. Use PUT para atualizar.'}), 409
+
+        # Inserir a classificação
+        query = """
+            INSERT INTO ativo_classificacao (
+                ativo_id, classe_investimento, indexador_primario, tipo_indexador, data_classificacao
+            ) VALUES (
+                %s, %s, %s, %s, NOW()
+            )
+        """
+
+        print(f"Executando query de inserção com valores: {data['ativo_id']}, {data['classe_investimento']}, {data['indexador_primario']}, {data['tipo_indexador']}")
+        
+        cursor.execute(query, (
+            data['ativo_id'],
+            data['classe_investimento'],
+            data['indexador_primario'],
+            data['tipo_indexador']
+        ))
+
+        classificacao_id = cursor.lastrowid
+        
+        # Registrar no histórico - Padronizando o formato para ser igual ao de atualização
+        cursor.execute("""
+            INSERT INTO ativo_history (
+                ativo_id, user_id, action_type, changes
+            ) VALUES (
+                %s, %s, 'CLASSIFICACAO', %s
+            )
+        """, (
+            data['ativo_id'],
+            request.user_id,
+            json.dumps({
+                'anterior': None,
+                'novo': data
+            })
+        ))
+
+        # Confirmar transação
+        connection.commit()
+        
+        # Obter a classificação recém-criada
+        cursor.execute("SELECT * FROM ativo_classificacao WHERE id = %s", (classificacao_id,))
+        nova_classificacao = cursor.fetchone()
+        
+        # Converter data para string para serialização JSON
+        if nova_classificacao and 'data_classificacao' in nova_classificacao:
+            nova_classificacao['data_classificacao'] = nova_classificacao['data_classificacao'].isoformat()
+        
+        print(f"Classificação criada: {nova_classificacao}")
+        
+        # Retornar a classificação criada
+        return jsonify({
+            'message': 'Classificação criada com sucesso',
+            'classificacao': nova_classificacao
+        }), 201
+            
+    except Error as e:
+        if connection:
+            connection.rollback()
+        print(f"Erro SQL ao criar classificação: {str(e)}")
+        return jsonify({'error': f'Erro ao criar classificação: {str(e)}'}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+@ativos_bp.route('/api/ativos/classificacao/<int:id>', methods=['PUT'])
+@token_required
+def atualizar_classificacao(id, current_user=None):
+    """Atualiza uma classificação existente"""
+    connection = None
+    cursor = None
+    try:
+        # Verificar se o usuário é Admin ou Research
+        if request.user_role not in ['Admin', 'Research']:
+            return jsonify({'error': 'Acesso negado: somente Admin e Research podem atualizar classificações'}), 403
+
+        data = request.get_json()
+        print(f"Dados recebidos na atualização: {data}")
+        
+        # Validar campos obrigatórios
+        campos_obrigatorios = ['ativo_id', 'classe_investimento', 'indexador_primario', 'tipo_indexador']
+        for campo in campos_obrigatorios:
+            if campo not in data:
+                return jsonify({'error': f'Campo obrigatório não fornecido: {campo}'}), 400
+
+        # Validar tipo de indexador
+        if data['tipo_indexador'] not in ['cnpj', 'ticker', 'isin']:
+            return jsonify({'error': 'Tipo de indexador inválido. Deve ser cnpj, ticker ou isin'}), 400
+
+        # Validar classe de investimento
+        classes_investimento_validas = [
+            'Pós-Fixado', 'Inflação', 'Pré-Fixado', 'Multimercado',
+            'Renda Variável Brasil', 'Fundos Listados', 'Alternativos',
+            'Renda Fixa Global', 'Renda Variável Internacional'
+        ]
+        if data['classe_investimento'] not in classes_investimento_validas:
+            return jsonify({'error': f'Classe de investimento inválida. Deve ser uma das seguintes: {", ".join(classes_investimento_validas)}'}), 400
+
+        # Garantir que indexador_primario não seja None
+        if data['indexador_primario'] is None:
+            data['indexador_primario'] = ''
+
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor(dictionary=True)
+
+        # Verificar se a classificação existe
+        cursor.execute("SELECT * FROM ativo_classificacao WHERE id = %s", (id,))
+        classificacao_atual = cursor.fetchone()
+        if not classificacao_atual:
+            return jsonify({'error': 'Classificação não encontrada'}), 404
+
+        # Verificar se o ativo existe
+        cursor.execute("SELECT id FROM ativos WHERE id = %s", (data['ativo_id'],))
+        if not cursor.fetchone():
+            return jsonify({'error': 'Ativo não encontrado'}), 404
+
+        # Atualizar a classificação
+        query = """
+            UPDATE ativo_classificacao 
+            SET classe_investimento = %s,
+                indexador_primario = %s, 
+                tipo_indexador = %s, 
+                data_classificacao = NOW()
+            WHERE id = %s
+        """
+
+        print(f"Executando query de atualização com valores: {data['classe_investimento']}, {data['indexador_primario']}, {data['tipo_indexador']}, {id}")
+        
+        cursor.execute(query, (
+            data['classe_investimento'],
+            data['indexador_primario'],
+            data['tipo_indexador'],
+            id
+        ))
+
+        # Registrar no histórico
+        cursor.execute("""
+            INSERT INTO ativo_history (
+                ativo_id, user_id, action_type, changes
+            ) VALUES (
+                %s, %s, 'UPDATE_CLASSIFICACAO', %s
+            )
+        """, (
+            data['ativo_id'],
+            request.user_id,
+            json.dumps({
+                'anterior': {k: str(v) if isinstance(v, datetime) else v for k, v in classificacao_atual.items()},
+                'novo': data
+            })
+        ))
+
+        # Confirmar transação
+        connection.commit()
+
+        # Buscar a classificação atualizada
+        cursor.execute("SELECT * FROM ativo_classificacao WHERE id = %s", (id,))
+        classificacao_atualizada = cursor.fetchone()
+        
+        # Converter data para string para serialização JSON
+        if classificacao_atualizada and 'data_classificacao' in classificacao_atualizada:
+            classificacao_atualizada['data_classificacao'] = classificacao_atualizada['data_classificacao'].isoformat()
+        
+        print(f"Classificação atualizada: {classificacao_atualizada}")
+        
+        return jsonify({
+            'message': 'Classificação atualizada com sucesso',
+            'classificacao': classificacao_atualizada
+        }), 200
+            
+    except Error as e:
+        if connection:
+            connection.rollback()
+        print(f"Erro SQL ao atualizar classificação: {str(e)}")
+        return jsonify({'error': f'Erro ao atualizar classificação: {str(e)}'}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+@ativos_bp.route('/api/ativos/classificacao/<int:id>', methods=['DELETE'])
+@token_required
+def excluir_classificacao(id, current_user=None):
+    """Exclui uma classificação existente"""
+    try:
+        # Verificar se o usuário é Admin ou Research
+        if request.user_role not in ['Admin', 'Research']:
+            return jsonify({'error': 'Acesso negado: somente Admin e Research podem excluir classificações'}), 403
+
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor(dictionary=True)
+
+        # Verificar se a classificação existe
+        cursor.execute("SELECT * FROM ativo_classificacao WHERE id = %s", (id,))
+        classificacao = cursor.fetchone()
+        if not classificacao:
+            return jsonify({'error': 'Classificação não encontrada'}), 404
+
+        # Registrar no histórico antes de excluir
+        cursor.execute("""
+            INSERT INTO ativo_history (
+                ativo_id, user_id, action_type, changes
+            ) VALUES (
+                %s, %s, 'DELETE_CLASSIFICACAO', %s
+            )
+        """, (
+            classificacao['ativo_id'],
+            request.user_id,
+            json.dumps({
+                'anterior': {k: str(v) if isinstance(v, datetime) else v for k, v in classificacao.items()},
+                'novo': None
+            })
+        ))
+
+        # Excluir a classificação
+        cursor.execute("DELETE FROM ativo_classificacao WHERE id = %s", (id,))
+
+        connection.commit()
+        cursor.close()
+        connection.close()
+
+        return jsonify({
+            'message': 'Classificação excluída com sucesso'
+        }), 200
+    
+    except Error as e:
+        return jsonify({'error': f'Erro ao excluir classificação: {str(e)}'}), 500 
