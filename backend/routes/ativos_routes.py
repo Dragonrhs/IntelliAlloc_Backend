@@ -1039,3 +1039,74 @@ def excluir_classificacao(id, current_user=None):
     
     except Error as e:
         return jsonify({'error': f'Erro ao excluir classificação: {str(e)}'}), 500 
+
+@ativos_bp.route('/api/ativos/historico/resumo', methods=['GET'])
+@token_required
+def obter_resumo_historico(current_user=None):
+    """
+    Retorna um resumo das atividades diárias de ativos, agrupadas por tipo de ação.
+    Parâmetros:
+    - date: Data no formato YYYY-MM-DD para filtrar as atividades (opcional)
+    """
+    try:
+        connection = get_db_connection()
+        if connection is None:
+            return jsonify({'error': 'Erro de conexão com o banco'}), 500
+
+        cursor = connection.cursor(dictionary=True)
+        
+        # Obter a data do parâmetro de consulta ou usar a data atual
+        data = request.args.get('date')
+        
+        # Construir a consulta base
+        query = """
+            SELECT 
+                action_type,
+                COUNT(*) as quantidade
+            FROM 
+                ativo_history
+        """
+        
+        params = []
+        
+        # Adicionar filtro por data se especificado
+        if data:
+            query += " WHERE DATE(action_date) = %s"
+            params.append(data)
+            
+        # Agrupar por tipo de ação
+        query += " GROUP BY action_type"
+        
+        cursor.execute(query, params)
+        resultados = cursor.fetchall()
+        
+        # Inicializar o resumo com zeros
+        resumo = {
+            'classificacoes': 0,
+            'atualizacoes_classificacao': 0,
+            'importacoes': 0,
+            'atualizacoes': 0,
+            'total': 0
+        }
+        
+        # Preencher o resumo com os resultados da consulta
+        for resultado in resultados:
+            if resultado['action_type'] == 'CLASSIFICACAO':
+                resumo['classificacoes'] = resultado['quantidade']
+            elif resultado['action_type'] == 'UPDATE_CLASSIFICACAO':
+                resumo['atualizacoes_classificacao'] = resultado['quantidade']
+            elif resultado['action_type'] == 'IMPORT':
+                resumo['importacoes'] = resultado['quantidade']
+            elif resultado['action_type'] == 'UPDATE':
+                resumo['atualizacoes'] = resultado['quantidade']
+            
+            resumo['total'] += resultado['quantidade']
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({'resumo': resumo}), 200
+        
+    except Exception as e:
+        print(f'Erro ao obter resumo do histórico: {str(e)}')
+        return jsonify({'error': 'Erro ao obter resumo do histórico'}), 500 
