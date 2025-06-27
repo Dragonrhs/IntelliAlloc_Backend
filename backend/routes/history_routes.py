@@ -261,6 +261,7 @@ def get_classificacao_history(current_user=None):
         ativo_id = request.args.get('ativo_id')
         limit = request.args.get('limit', default=50, type=int)
         offset = request.args.get('offset', default=0, type=int)
+        date = request.args.get('date')  # Novo parâmetro para filtrar por data
         
         # Construir a consulta base - Usando DISTINCT ON para evitar duplicações
         query = """
@@ -290,6 +291,11 @@ def get_classificacao_history(current_user=None):
         if ativo_id:
             query += " AND h.ativo_id = %s"
             params.append(ativo_id)
+        
+        # Adicionar filtro por data se especificado
+        if date:
+            query += " AND DATE(h.action_date) = %s"
+            params.append(date)
             
         # Adicionar ordenação e paginação
         query += " ORDER BY h.action_date DESC, h.id DESC LIMIT %s OFFSET %s"
@@ -374,12 +380,18 @@ def get_classificacao_history(current_user=None):
             WHERE action_type IN ('CLASSIFICACAO', 'UPDATE_CLASSIFICACAO', 'DELETE_CLASSIFICACAO')
         """
         
+        count_params = []
+        
         if ativo_id:
             count_query += " AND ativo_id = %s"
-            cursor.execute(count_query, [ativo_id])
-        else:
-            cursor.execute(count_query)
+            count_params.append(ativo_id)
             
+        # Adicionar filtro por data na contagem também
+        if date:
+            count_query += " AND DATE(action_date) = %s"
+            count_params.append(date)
+            
+        cursor.execute(count_query, count_params)
         total = cursor.fetchone()['total']
         
         cursor.close()
