@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, jsonify
 from config.config import load_config
 from routes.auth_routes import auth_bp
 from routes.user_routes import user_bp
@@ -12,6 +12,11 @@ from routes.ia_routes import ia_bp
 from routes.permissions_routes import permissions_bp
 from flask_cors import CORS
 from middleware.auth import token_required
+import os
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -35,12 +40,16 @@ app.register_blueprint(auth_bp, url_prefix='/')
 app.register_blueprint(user_bp, url_prefix='/')
 app.register_blueprint(client_bp, url_prefix='/')
 app.register_blueprint(history_bp, url_prefix='/')
-app.register_blueprint(portfolio_bp, url_prefix='/')
+app.register_blueprint(portfolio_bp)
 app.register_blueprint(statistics_bp, url_prefix='/')
 app.register_blueprint(ativos_bp, url_prefix='/')
 app.register_blueprint(parametros_bp, url_prefix='/')
 app.register_blueprint(ia_bp)
 app.register_blueprint(permissions_bp, url_prefix='/')
 
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "ok"}), 200
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
