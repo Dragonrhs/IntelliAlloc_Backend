@@ -10,6 +10,7 @@ from routes.ativos_routes import ativos_bp
 from routes.parametros_routes import parametros_bp
 from routes.ia_routes import ia_bp
 from routes.permissions_routes import permissions_bp
+from routes.carteira_cliente_routes import carteira_cliente_bp
 from flask_cors import CORS
 from middleware.auth import token_required
 import os
@@ -46,6 +47,7 @@ app.register_blueprint(ativos_bp, url_prefix='/')
 app.register_blueprint(parametros_bp, url_prefix='/')
 app.register_blueprint(ia_bp)
 app.register_blueprint(permissions_bp, url_prefix='/')
+app.register_blueprint(carteira_cliente_bp)
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
